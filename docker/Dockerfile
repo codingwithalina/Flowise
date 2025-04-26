@@ -3,8 +3,12 @@
 # ──────────────────────────────────────────────────────────────
 FROM node:20-bookworm AS build
 WORKDIR /usr/src/app
+
+# Flowise + Playwright installieren
 RUN npm install -g flowise playwright@latest
-RUN npx playwright install --with-deps      # ⇒ legt Browser unter /root/.cache/ms-playwright ab
+
+# Browser und system-spezifische Playwright-Deps herunterladen
+RUN npx playwright install --with-deps    # Browser in /root/.cache/ms-playwright
 
 # ──────────────────────────────────────────────────────────────
 # Stage 2: Runtime
@@ -13,27 +17,25 @@ FROM node:20-bookworm
 WORKDIR /home/node/app
 USER root
 
-# 1) System-Libs
-RUN apt-get update && apt-get install -y \
-      libnss3 libatk1.0-0 libatk-bridge2.0-0 \
-      libx11-xcb1 libxcomposite1 libxdamage1 libxfixes3 \
-      libpango-1.0-0 libpangocairo-1.0-0 \
-      libcups2 libdrm2 libgbm1 libasound2 libgtk-3-0 \
-      libxrandr2 libxshmfence1 libwayland-client0 \
-      libwayland-cursor0 libwayland-egl1 libwayland-server0 \
-   && rm -rf /var/lib/apt/lists/*
+# 1) **Alle** System-Libraries installieren (Playwright-Shortcut)
+### geändert: eigener apt-Block überflüssig → install-deps
+RUN apt-get update \
+ && npx playwright install-deps \
+ && rm -rf /var/lib/apt/lists/*
 
 # 2) Globale Node-Module + CLI übernehmen
 COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=build /usr/local/bin            /usr/local/bin
 
-# 2a) **Browser-Cache übernehmen (neu)**
+# 3) Browser-Cache übernehmen
+### geändert: Pfad kopieren & HOME/ENV setzen
 COPY --from=build /root/.cache/ms-playwright /home/pwuser/.cache/ms-playwright
 ENV  PLAYWRIGHT_BROWSERS_PATH=/home/pwuser/.cache/ms-playwright
+ENV  HOME=/home/pwuser
 
-# 2b) Berechtigungen anpassen (damit der Nicht-Root-User schreiben darf)
+# 4) Benutzer anlegen + Rechte
 RUN useradd -m pwuser \
- && chown -R pwuser:pwuser /home/pwuser/.cache/ms-playwright
+ && chown -R pwuser:pwuser /home/pwuser/.cache
 
 USER pwuser
 WORKDIR /home/pwuser
